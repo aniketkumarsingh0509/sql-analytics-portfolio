@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Churn & Cohort Retention Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1f2d45;
+    --accent: #f97316;
+    --accent2: #3b82f6;
+    --accent3: #10b981;
+    --danger: #ef4444;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --mono: 'DM Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+  /* GRID NOISE BACKGROUND */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(249,115,22,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(249,115,22,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; z-index: 0;
+  }
+
+  .wrapper { position: relative; z-index: 1; padding: 2rem; max-width: 1400px; margin: 0 auto; }
+
+  /* HEADER */
+  header { margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem; }
+  .header-left {}
+  .project-badge { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 6px; }
+  h1 { font-size: clamp(22px, 3vw, 36px); font-weight: 800; line-height: 1.1; }
+  h1 span { color: var(--accent); }
+  .header-meta { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .dataset-tag { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  /* KPI CARDS */
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; position: relative; overflow: hidden; animation: fadeUp 0.5s ease both; }
+  .kpi::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .kpi.orange::before { background: var(--accent); }
+  .kpi.blue::before   { background: var(--accent2); }
+  .kpi.green::before  { background: var(--accent3); }
+  .kpi.red::before    { background: var(--danger); }
+  .kpi-label { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+  .kpi-value { font-size: 32px; font-weight: 800; line-height: 1; }
+  .kpi.orange .kpi-value { color: var(--accent); }
+  .kpi.blue .kpi-value   { color: var(--accent2); }
+  .kpi.green .kpi-value  { color: var(--accent3); }
+  .kpi.red .kpi-value    { color: var(--danger); }
+  .kpi-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  /* CHARTS GRID */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+  .span2 { grid-column: span 2; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; animation: fadeUp 0.6s ease both; }
+  .card-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .card-sub { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-bottom: 1.25rem; letter-spacing: 0.05em; }
+  .chart-wrap { position: relative; }
+
+  /* COHORT TABLE */
+  .cohort-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  .cohort-table th { padding: 8px 12px; text-align: left; color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  .cohort-table td { padding: 10px 12px; border-bottom: 1px solid rgba(31,45,69,0.5); }
+  .cohort-table tr:last-child td { border-bottom: none; }
+  .bar-inline { display: flex; align-items: center; gap: 8px; }
+  .bar-bg { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; }
+  .risk-badge { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 500; }
+  .risk-high { background: rgba(239,68,68,0.15); color: #f87171; }
+  .risk-med  { background: rgba(249,115,22,0.15); color: #fb923c; }
+  .risk-low  { background: rgba(16,185,129,0.15); color: #34d399; }
+
+  /* RISK TABLE */
+  .risk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .risk-table th { padding: 8px 12px; text-align: left; color: var(--muted); font-size: 10px; font-family: var(--mono); letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  .risk-table td { padding: 10px 12px; border-bottom: 1px solid rgba(31,45,69,0.5); font-family: var(--mono); font-size: 12px; }
+
+  /* FOOTER */
+  footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+  .footer-note { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .sql-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .sql-tag { font-family: var(--mono); font-size: 10px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .kpi:nth-child(1) { animation-delay: 0.05s; }
+  .kpi:nth-child(2) { animation-delay: 0.10s; }
+  .kpi:nth-child(3) { animation-delay: 0.15s; }
+  .kpi:nth-child(4) { animation-delay: 0.20s; }
+  .kpi:nth-child(5) { animation-delay: 0.25s; }
+
+  @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } .span2 { grid-column: span 1; } }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <header>
+    <div class="header-left">
+      <div class="project-badge">Project 01 / 03</div>
+      <h1>User Churn &<br><span>Cohort Retention</span></h1>
+      <div class="header-meta">Telco Customer Churn Dataset · 7,043 customers · SQL Server</div>
+    </div>
+    <div class="dataset-tag">vw_churn_* views · SSMS</div>
+  </header>
+
+  <!-- KPI CARDS -->
+  <div class="kpi-row">
+    <div class="kpi red">
+      <div class="kpi-label">Churn Rate</div>
+      <div class="kpi-value">26.5%</div>
+      <div class="kpi-sub">1,869 of 7,043 customers</div>
+    </div>
+    <div class="kpi green">
+      <div class="kpi-label">Retention Rate</div>
+      <div class="kpi-value">73.5%</div>
+      <div class="kpi-sub">5,174 active customers</div>
+    </div>
+    <div class="kpi orange">
+      <div class="kpi-label">Avg Tenure (Churned)</div>
+      <div class="kpi-value">17.9<span style="font-size:16px;"> mo</span></div>
+      <div class="kpi-sub">vs 37.6 mo retained</div>
+    </div>
+    <div class="kpi blue">
+      <div class="kpi-label">Avg Charges (Churned)</div>
+      <div class="kpi-value">$74.4</div>
+      <div class="kpi-sub">vs $61.3 retained</div>
+    </div>
+    <div class="kpi red">
+      <div class="kpi-label">Highest Risk Segment</div>
+      <div class="kpi-value">42%</div>
+      <div class="kpi-sub">No tech support + no security</div>
+    </div>
+  </div>
+
+  <!-- ROW 1: Churn by Contract + Churn by Payment -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Churn Rate by Contract Type</div>
+      <div class="card-sub">vw_churn_by_contract · BAR CHART</div>
+      <div class="chart-wrap"><canvas id="contractChart" height="220"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Churn Rate by Payment Method</div>
+      <div class="card-sub">vw_churn_by_payment · DONUT CHART</div>
+      <div class="chart-wrap"><canvas id="paymentChart" height="220"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ROW 2: Cohort Table + Cumulative Churn -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Cohort Retention by Tenure</div>
+      <div class="card-sub">vw_cohort_retention · TABLE + BAR</div>
+      <table class="cohort-table">
+        <thead>
+          <tr><th>Cohort</th><th>Customers</th><th>Retention %</th><th>Risk</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>0–12 months</td><td>2,175</td>
+            <td><div class="bar-inline"><div class="bar-bg"><div class="bar-fill" style="width:47%;background:#ef4444"></div></div><span>47%</span></div></td>
+            <td><span class="risk-badge risk-high">High</span></td>
+          </tr>
+          <tr>
+            <td>13–24 months</td><td>1,480</td>
+            <td><div class="bar-inline"><div class="bar-bg"><div class="bar-fill" style="width:68%;background:#f97316"></div></div><span>68%</span></div></td>
+            <td><span class="risk-badge risk-med">Medium</span></td>
+          </tr>
+          <tr>
+            <td>25–48 months</td><td>2,012</td>
+            <td><div class="bar-inline"><div class="bar-bg"><div class="bar-fill" style="width:80%;background:#f97316"></div></div><span>80%</span></div></td>
+            <td><span class="risk-badge risk-med">Medium</span></td>
+          </tr>
+          <tr>
+            <td>48+ months</td><td>1,376</td>
+            <td><div class="bar-inline"><div class="bar-bg"><div class="bar-fill" style="width:94%;background:#10b981"></div></div><span>94%</span></div></td>
+            <td><span class="risk-badge risk-low">Low</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">Cumulative Churn Rate by Tenure</div>
+      <div class="card-sub">Window Function: SUM() OVER · LINE CHART</div>
+      <div class="chart-wrap"><canvas id="cumulativeChart" height="220"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ROW 3: Churn Drivers Heatmap + At-Risk Customers -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Churn Drivers — Internet × Support</div>
+      <div class="card-sub">vw_churn_drivers · HEATMAP TABLE</div>
+      <canvas id="driversChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-title">Top At-Risk Active Customers</div>
+      <div class="card-sub">vw_active_customer_risk · RISK TABLE</div>
+      <table class="risk-table">
+        <thead><tr><th>Customer</th><th>Contract</th><th>Tenure</th><th>Charges</th><th>Risk</th></tr></thead>
+        <tbody>
+          <tr><td>C-4081</td><td>Month-to-month</td><td>3 mo</td><td>$89.1</td><td><span class="risk-badge risk-high">High</span></td></tr>
+          <tr><td>C-2912</td><td>Month-to-month</td><td>5 mo</td><td>$84.5</td><td><span class="risk-badge risk-high">High</span></td></tr>
+          <tr><td>C-7204</td><td>Month-to-month</td><td>8 mo</td><td>$79.9</td><td><span class="risk-badge risk-high">High</span></td></tr>
+          <tr><td>C-3317</td><td>Month-to-month</td><td>11 mo</td><td>$76.2</td><td><span class="risk-badge risk-med">Medium</span></td></tr>
+          <tr><td>C-5589</td><td>One year</td><td>14 mo</td><td>$71.8</td><td><span class="risk-badge risk-med">Medium</span></td></tr>
+          <tr><td>C-1104</td><td>Month-to-month</td><td>18 mo</td><td>$68.4</td><td><span class="risk-badge risk-med">Medium</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-note">Project 1 of 3 · Aniket Kumar Singh · Telco Churn Dataset · SQL Server</div>
+    <div class="sql-tags">
+      <span class="sql-tag">COHORT ANALYSIS</span>
+      <span class="sql-tag">WINDOW FUNCTIONS</span>
+      <span class="sql-tag">LAG()</span>
+      <span class="sql-tag">RANK()</span>
+      <span class="sql-tag">SQL VIEWS</span>
+    </div>
+  </footer>
+</div>
+
+<script>
+const ACCENT = '#f97316', BLUE = '#3b82f6', GREEN = '#10b981', RED = '#ef4444', MUTED = '#64748b';
+const gridColor = 'rgba(31,45,69,0.8)';
+const defaults = { color: '#e2e8f0', font: { family: 'DM Mono, monospace', size: 11 } };
+Chart.defaults.color = defaults.color;
+Chart.defaults.font = defaults.font;
+
+// Contract Chart
+new Chart(document.getElementById('contractChart'), {
+  type: 'bar',
+  data: {
+    labels: ['Month-to-month', 'One Year', 'Two Year'],
+    datasets: [{
+      label: 'Churn Rate %',
+      data: [42.7, 11.3, 2.8],
+      backgroundColor: [RED, ACCENT, GREEN],
+      borderRadius: 6, borderSkipped: false
+    }]
+  },
+  options: {
+    responsive: true, plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: gridColor } },
+      y: { grid: { color: gridColor }, ticks: { callback: v => v + '%' }, max: 50 }
+    }
+  }
+});
+
+// Payment Donut
+new Chart(document.getElementById('paymentChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Electronic Check', 'Mailed Check', 'Bank Transfer', 'Credit Card'],
+    datasets: [{
+      data: [45.3, 19.1, 16.7, 15.2],
+      backgroundColor: [RED, ACCENT, BLUE, GREEN],
+      borderWidth: 0, hoverOffset: 8
+    }]
+  },
+  options: {
+    responsive: true, cutout: '65%',
+    plugins: {
+      legend: { position: 'right', labels: { padding: 16, font: { size: 11 } } }
+    }
+  }
+});
+
+// Cumulative Churn Line
+const tenureLabels = ['6','12','18','24','30','36','42','48','54','60','66','72'];
+new Chart(document.getElementById('cumulativeChart'), {
+  type: 'line',
+  data: {
+    labels: tenureLabels,
+    datasets: [{
+      label: 'Cumulative Churn %',
+      data: [18, 32, 39, 43, 45, 46, 47, 47.5, 48, 48.5, 49, 49.5],
+      borderColor: RED, backgroundColor: 'rgba(239,68,68,0.08)',
+      fill: true, tension: 0.4, pointRadius: 3, pointBackgroundColor: RED
+    },{
+      label: 'Monthly Churn Rate %',
+      data: [18, 14, 7, 4, 2, 1, 1, 0.5, 0.5, 0.5, 0.5, 0.5],
+      borderColor: ACCENT, backgroundColor: 'transparent',
+      fill: false, tension: 0.4, pointRadius: 3, pointBackgroundColor: ACCENT, borderDash: [4,4]
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'top', labels: { padding: 12, font: { size: 11 } } } },
+    scales: {
+      x: { grid: { color: gridColor }, title: { display: true, text: 'Tenure (months)', color: MUTED } },
+      y: { grid: { color: gridColor }, ticks: { callback: v => v + '%' } }
+    }
+  }
+});
+
+// Churn Drivers Bar
+new Chart(document.getElementById('driversChart'), {
+  type: 'bar',
+  data: {
+    labels: ['No Support\nNo Security', 'No Support\nWith Security', 'With Support\nNo Security', 'With Support\n& Security'],
+    datasets: [
+      { label: 'Fiber Optic', data: [51.2, 38.4, 28.1, 19.2], backgroundColor: RED, borderRadius: 4 },
+      { label: 'DSL', data: [32.1, 21.4, 14.3, 9.8], backgroundColor: ACCENT, borderRadius: 4 },
+      { label: 'No Internet', data: [8.3, 7.1, 6.9, 6.2], backgroundColor: BLUE, borderRadius: 4 }
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'top', labels: { padding: 12, font: { size: 11 } } } },
+    scales: {
+      x: { grid: { color: gridColor }, stacked: false },
+      y: { grid: { color: gridColor }, ticks: { callback: v => v + '%' }, title: { display: true, text: 'Churn Rate %', color: MUTED } }
+    }
+  }
+});
+</script>
+</body>
+</html>
