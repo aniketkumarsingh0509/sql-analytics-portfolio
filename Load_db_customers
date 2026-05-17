@@ -1,3 +1,12 @@
+-- ============================================================
+-- PROJECT 1: User Churn & Cohort Retention Analysis
+-- Tool: SQL Server Management Studio (SSMS)
+-- Dataset: Telco Customer Churn (Kaggle)
+-- Author: Aniket Kumar Singh
+-- ============================================================
+-- STEP 1: Create Database & Table
+-- ============================================================
+
 CREATE DATABASE ChurnAnalysis;
 GO
 
@@ -30,3 +39,10 @@ CREATE TABLE customers (
     churn             VARCHAR(5)        -- Yes/No
 );
 GO
+
+-- ============================================================
+-- After creating the table, import the CSV:
+-- Right-click ChurnAnalysis DB > Tasks > Import Flat File
+-- Select your telco_churn.csv file
+-- Map columns to the table above
+-- ============================================================
