@@ -1,1 +1,151 @@
+-- ============================================================
+-- PROJECT 1: Dashboard Views for Power BI
+-- Connect Power BI to these views directly
+-- ============================================================
+
+USE ChurnAnalysis;
+GO
+
+-- ============================================================
+-- VIEW 1: Overall KPI Summary Card
+-- Use for: KPI cards at top of dashboard
+-- ============================================================
+
+CREATE OR ALTER VIEW vw_churn_kpi_summary AS
+SELECT
+    COUNT(*)                                                                        AS total_customers,
+    SUM(CASE WHEN churn = 'Yes' THEN 1 ELSE 0 END)                                AS total_churned,
+    SUM(CASE WHEN churn = 'No'  THEN 1 ELSE 0 END)                                AS total_retained,
+    ROUND(SUM(CASE WHEN churn = 'Yes' THEN 1.0 ELSE 0 END) * 100 / COUNT(*), 2)  AS overall_churn_rate_pct,
+    ROUND(AVG(CASE WHEN churn = 'Yes' THEN monthly_charges END), 2)               AS avg_charges_churned,
+    ROUND(AVG(CASE WHEN churn = 'No'  THEN monthly_charges END), 2)               AS avg_charges_retained,
+    ROUND(AVG(CASE WHEN churn = 'Yes' THEN CAST(tenure AS FLOAT) END), 1)         AS avg_tenure_churned,
+    ROUND(AVG(CASE WHEN churn = 'No'  THEN CAST(tenure AS FLOAT) END), 1)         AS avg_tenure_retained
+FROM customers;
+GO
+
+-- ============================================================
+-- VIEW 2: Churn by Contract Type
+-- Use for: Bar chart — Contract vs Churn Rate
+-- ============================================================
+
+CREATE OR ALTER VIEW vw_churn_by_contract AS
+SELECT
+    contract,
+    COUNT(*)                                                                        AS total_customers,
+    SUM(CASE WHEN churn = 'Yes' THEN 1 ELSE 0 END)                                AS churned,
+    ROUND(SUM(CASE WHEN churn = 'Yes' THEN 1.0 ELSE 0 END) * 100 / COUNT(*), 2)  AS churn_rate_pct,
+    ROUND(AVG(monthly_charges), 2)                                                 AS avg_monthly_charges
+FROM customers
+GROUP BY contract;
+GO
+
+-- ============================================================
+-- VIEW 3: Cohort Retention Table
+-- Use for: Retention curve / line chart by cohort
+-- ============================================================
+
+CREATE OR ALTER VIEW vw_cohort_retention AS
+SELECT
+    CASE
+        WHEN tenure BETWEEN 0  AND 12  THEN '0–12 months'
+        WHEN tenure BETWEEN 13 AND 24  THEN '13–24 months'
+        WHEN tenure BETWEEN 25 AND 48  THEN '25–48 months'
+        ELSE                                 '48+ months'
+    END                                                                             AS cohort,
+    contract,
+    COUNT(*)                                                                        AS total_customers,
+    SUM(CASE WHEN churn = 'Yes' THEN 1 ELSE 0 END)                                AS churned,
+    ROUND(SUM(CASE WHEN churn = 'Yes' THEN 1.0 ELSE 0 END) * 100 / COUNT(*), 2)  AS churn_rate_pct,
+    ROUND(100 - SUM(CASE WHEN churn = 'Yes' THEN 1.0 ELSE 0 END) * 100 / COUNT(*), 2) AS retention_rate_pct
+FROM customers
+GROUP BY
+    CASE
+        WHEN tenure BETWEEN 0  AND 12  THEN '0–12 months'
+        WHEN tenure BETWEEN 13 AND 24  THEN '13–24 months'
+        WHEN tenure BETWEEN 25 AND 48  THEN '25–48 months'
+        ELSE                                 '48+ months'
+    END,
+    contract;
+GO
+
+-- ============================================================
+-- VIEW 4: Churn by Payment Method
+-- Use for: Donut chart or horizontal bar
+-- ============================================================
+
+CREATE OR ALTER VIEW vw_churn_by_payment AS
+SELECT
+    payment_method,
+    COUNT(*)                                                                        AS total,
+    SUM(CASE WHEN churn = 'Yes' THEN 1 ELSE 0 END)                                AS churned,
+    ROUND(SUM(CASE WHEN churn = 'Yes' THEN 1.0 ELSE 0 END) * 100 / COUNT(*), 2)  AS churn_rate_pct
+FROM customers
+GROUP BY payment_method;
+GO
+
+-- ============================================================
+-- VIEW 5: Customer Risk Score (for Power BI slicer)
+-- Use for: Table visual — who are the at-risk active customers?
+-- ============================================================
+
+CREATE OR ALTER VIEW vw_active_customer_risk AS
+SELECT
+    customer_id,
+    contract,
+    tenure,
+    monthly_charges,
+    internet_service,
+    tech_support,
+    online_security,
+    -- Risk score: high charges + low tenure + no support = high risk
+    CASE
+        WHEN tenure <= 12 AND monthly_charges > 65 AND tech_support = 'No'  THEN 'High Risk'
+        WHEN tenure <= 24 AND monthly_charges > 50                           THEN 'Medium Risk'
+        ELSE                                                                       'Low Risk'
+    END AS churn_risk_segment,
+    RANK() OVER (ORDER BY monthly_charges DESC, tenure ASC)  AS overall_risk_rank
+FROM customers
+WHERE churn = 'No';
+GO
+
+-- ============================================================
+-- VIEW 6: Churn Drivers Summary
+-- Use for: Heatmap table in Power BI
+-- ============================================================
+
+CREATE OR ALTER VIEW vw_churn_drivers AS
+SELECT
+    internet_service,
+    tech_support,
+    online_security,
+    contract,
+    COUNT(*)                                                                        AS total,
+    SUM(CASE WHEN churn = 'Yes' THEN 1 ELSE 0 END)                                AS churned,
+    ROUND(SUM(CASE WHEN churn = 'Yes' THEN 1.0 ELSE 0 END) * 100 / COUNT(*), 2)  AS churn_rate_pct
+FROM customers
+GROUP BY internet_service, tech_support, online_security, contract
+HAVING COUNT(*) >= 10   -- filter noise
+ORDER BY churn_rate_pct DESC
+OFFSET 0 ROWS;          -- required for ORDER BY in views
+GO
+
+-- ============================================================
+-- POWER BI CONNECTION GUIDE
+-- 1. Open Power BI Desktop
+-- 2. Get Data > SQL Server
+-- 3. Server: localhost (or your server name)
+-- 4. Database: ChurnAnalysis
+-- 5. Import all vw_ views listed above
+-- 6. Build visuals using the view columns directly
+-- ============================================================
+
+-- Quick check — verify all views work:
+SELECT TOP 5 * FROM vw_churn_kpi_summary;
+SELECT TOP 5 * FROM vw_churn_by_contract;
+SELECT TOP 5 * FROM vw_cohort_retention;
+SELECT TOP 5 * FROM vw_churn_by_payment;
+SELECT TOP 5 * FROM vw_active_customer_risk;
+SELECT TOP 5 * FROM vw_churn_drivers;
+GO
 
