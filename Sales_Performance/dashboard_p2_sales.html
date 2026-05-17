@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Performance & RFM Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f8f5f0;
+    --surface: #ffffff;
+    --surface2: #f1ede6;
+    --border: #e2dbd0;
+    --ink: #1a1410;
+    --muted: #8b7d6b;
+    --accent: #c8391a;
+    --gold: #c8972a;
+    --teal: #1a6b5a;
+    --blue: #1a3d6b;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+    --serif: 'Instrument Serif', serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); min-height: 100vh; }
+
+  /* RULED PAPER TEXTURE */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: repeating-linear-gradient(transparent, transparent 31px, var(--border) 31px, var(--border) 32px);
+    opacity: 0.3; pointer-events: none; z-index: 0;
+  }
+
+  .wrapper { position: relative; z-index: 1; padding: 2rem; max-width: 1400px; margin: 0 auto; }
+
+  header { margin-bottom: 2rem; border-bottom: 3px double var(--ink); padding-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem; }
+  .project-badge { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 4px; }
+  h1 { font-family: var(--serif); font-size: clamp(28px, 4vw, 52px); line-height: 1; color: var(--ink); }
+  h1 em { color: var(--accent); font-style: italic; }
+  .header-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1.25rem; position: relative; }
+  .kpi::after { content: attr(data-num); position: absolute; top: 8px; right: 12px; font-family: var(--mono); font-size: 10px; color: var(--border); }
+  .kpi-label { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px; }
+  .kpi-value { font-family: var(--serif); font-size: 36px; line-height: 1; color: var(--ink); }
+  .kpi-value.red  { color: var(--accent); }
+  .kpi-value.gold { color: var(--gold); }
+  .kpi-value.teal { color: var(--teal); }
+  .kpi-value.blue { color: var(--blue); }
+  .kpi-sub { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 6px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+  .span2 { grid-column: span 2; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1.5rem; }
+  .card-title { font-family: var(--serif); font-size: 18px; color: var(--ink); margin-bottom: 2px; }
+  .card-sub { font-family: var(--mono); font-size: 9px; color: var(--muted); margin-bottom: 1.25rem; letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* RFM TABLE */
+  .rfm-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  .rfm-table th { padding: 8px 10px; text-align: left; font-size: 9px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; border-bottom: 2px solid var(--ink); }
+  .rfm-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  .rfm-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .seg-badge { display: inline-block; font-size: 9px; padding: 2px 8px; border-radius: 2px; font-weight: 500; letter-spacing: 0.05em; }
+
+  /* PRODUCT TABLE */
+  .prod-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  .prod-table th { padding: 8px 10px; text-align: left; font-size: 9px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 2px solid var(--ink); }
+  .prod-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .margin-bar { display: flex; align-items: center; gap: 6px; }
+  .margin-bg { flex: 1; height: 5px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+  .margin-fill { height: 100%; border-radius: 2px; }
+
+  footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px double var(--ink); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+  .footer-note { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .sql-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .sql-tag { font-family: var(--mono); font-size: 9px; padding: 3px 8px; border: 1px solid var(--border); color: var(--muted); }
+
+  @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } .span2 { grid-column: span 1; } }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <header>
+    <div>
+      <div class="project-badge">Project 02 / 03 — Sales Analytics</div>
+      <h1>Sales Performance<br>& <em>RFM Segmentation</em></h1>
+      <div class="header-meta">Superstore Dataset · 9,994 orders · 793 customers · 2014–2017</div>
+    </div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--muted);text-align:right;">
+      sp_monthly_kpi_report<br>vw_rfm_segments<br>SQL Server SSMS
+    </div>
+  </header>
+
+  <div class="kpi-row">
+    <div class="kpi" data-num="01">
+      <div class="kpi-label">Total Revenue</div>
+      <div class="kpi-value red">$2.3M</div>
+      <div class="kpi-sub">2014 – 2017</div>
+    </div>
+    <div class="kpi" data-num="02">
+      <div class="kpi-label">Total Profit</div>
+      <div class="kpi-value gold">$286K</div>
+      <div class="kpi-sub">12.5% margin</div>
+    </div>
+    <div class="kpi" data-num="03">
+      <div class="kpi-label">Total Orders</div>
+      <div class="kpi-value blue">9,994</div>
+      <div class="kpi-sub">Avg order: $230</div>
+    </div>
+    <div class="kpi" data-num="04">
+      <div class="kpi-label">Champions</div>
+      <div class="kpi-value teal">18%</div>
+      <div class="kpi-sub">of customer base</div>
+    </div>
+    <div class="kpi" data-num="05">
+      <div class="kpi-label">At-Risk Customers</div>
+      <div class="kpi-value red">22%</div>
+      <div class="kpi-sub">Need re-engagement</div>
+    </div>
+  </div>
+
+  <!-- Revenue Trend + Category Performance -->
+  <div class="grid-2" style="margin-bottom:1.5rem;">
+    <div class="card span2">
+      <div class="card-title">Monthly Revenue with MoM Growth</div>
+      <div class="card-sub">vw_monthly_revenue_trend · LAG() Window Function · Line Chart</div>
+      <canvas id="revenueChart" height="120"></canvas>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Revenue by Category & Sub-category</div>
+      <div class="card-sub">vw_category_performance · Horizontal Bar</div>
+      <canvas id="categoryChart" height="240"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-title">Discount Impact on Profit Margin</div>
+      <div class="card-sub">vw_discount_impact · Bar Chart</div>
+      <canvas id="discountChart" height="240"></canvas>
+    </div>
+  </div>
+
+  <!-- RFM Segments + Top Products -->
+  <div class="grid-2" style="margin-top:1.5rem;">
+    <div class="card">
+      <div class="card-title">RFM Customer Segments</div>
+      <div class="card-sub">vw_rfm_segments · NTILE(5) Scoring · Doughnut + Table</div>
+      <canvas id="rfmChart" height="180"></canvas>
+      <div style="margin-top:1rem;">
+        <table class="rfm-table">
+          <thead><tr><th>Segment</th><th>Customers</th><th>Avg Spend</th><th>Revenue %</th></tr></thead>
+          <tbody>
+            <tr><td><span class="rfm-dot" style="background:#c8391a"></span>Champions</td><td>143</td><td>$1,842</td><td>38.2%</td></tr>
+            <tr><td><span class="rfm-dot" style="background:#c8972a"></span>Loyal Customers</td><td>112</td><td>$1,204</td><td>19.4%</td></tr>
+            <tr><td><span class="rfm-dot" style="background:#1a6b5a"></span>Potential Loyalists</td><td>98</td><td>$892</td><td>12.6%</td></tr>
+            <tr><td><span class="rfm-dot" style="background:#3b82f6"></span>Big Spenders</td><td>67</td><td>$1,560</td><td>15.1%</td></tr>
+            <tr><td><span class="rfm-dot" style="background:#ef4444"></span>At Risk</td><td>175</td><td>$634</td><td>10.1%</td></tr>
+            <tr><td><span class="rfm-dot" style="background:#94a3b8"></span>Lost</td><td>96</td><td>$289</td><td>4.6%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Top 10 Products by Revenue</div>
+      <div class="card-sub">vw_category_performance · Revenue + Margin · Table</div>
+      <table class="prod-table">
+        <thead><tr><th>Product</th><th>Revenue</th><th>Margin</th></tr></thead>
+        <tbody>
+          <tr><td>Canon imageCLASS Copier</td><td>$61,600</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:80%;background:#1a6b5a"></div></div><span>26%</span></div></td></tr>
+          <tr><td>Fellowes PB500 Binding</td><td>$27,453</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:65%;background:#1a6b5a"></div></div><span>21%</span></div></td></tr>
+          <tr><td>Hewlett Packard LaserJet</td><td>$17,498</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:55%;background:#c8972a"></div></div><span>18%</span></div></td></tr>
+          <tr><td>GBC DocuBind TL300</td><td>$15,760</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:50%;background:#c8972a"></div></div><span>16%</span></div></td></tr>
+          <tr><td>Samsung Smart Phone</td><td>$14,290</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:35%;background:#c8391a"></div></div><span>11%</span></div></td></tr>
+          <tr><td>Cubify CubeX 3D Printer</td><td>$12,840</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:20%;background:#c8391a"></div></div><span>-7%</span></div></td></tr>
+          <tr><td>Cisco TelePresence System</td><td>$11,970</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:15%;background:#c8391a"></div></div><span>-11%</span></div></td></tr>
+          <tr><td>Lexmark MX611dhe Printer</td><td>$11,492</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:55%;background:#c8972a"></div></div><span>18%</span></div></td></tr>
+          <tr><td>Motorola Smart Phone</td><td>$10,920</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:28%;background:#c8391a"></div></div><span>9%</span></div></td></tr>
+          <tr><td>Nokia Smart Phone</td><td>$10,574</td><td><div class="margin-bar"><div class="margin-bg"><div class="margin-fill" style="width:22%;background:#c8391a"></div></div><span>7%</span></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-note">Project 2 of 3 · Aniket Kumar Singh · Superstore Dataset · SQL Server</div>
+    <div class="sql-tags">
+      <span class="sql-tag">RFM · NTILE(5)</span>
+      <span class="sql-tag">LAG() MoM GROWTH</span>
+      <span class="sql-tag">STORED PROCEDURE</span>
+      <span class="sql-tag">NORMALISED SCHEMA</span>
+    </div>
+  </footer>
+</div>
+
+<script>
+const INK='#1a1410', MUTED='#8b7d6b', RED='#c8391a', GOLD='#c8972a', TEAL='#1a6b5a', BLUE='#1a3d6b', BORDER='#e2dbd0';
+Chart.defaults.color = MUTED;
+Chart.defaults.font = { family: "'IBM Plex Mono', monospace", size: 10 };
+
+// Revenue trend
+const months = ['Jan 14','Apr 14','Jul 14','Oct 14','Jan 15','Apr 15','Jul 15','Oct 15','Jan 16','Apr 16','Jul 16','Oct 16','Jan 17','Apr 17','Jul 17','Oct 17'];
+const revenue = [28,34,42,88,26,38,44,95,31,45,52,112,38,52,61,136];
+const momGrowth = [null,21,24,110,-70,46,16,116,-73,45,15,115,-66,37,17,123];
+
+new Chart(document.getElementById('revenueChart'), {
+  type: 'bar',
+  data: {
+    labels: months,
+    datasets: [
+      { label: 'Revenue ($K)', data: revenue, backgroundColor: 'rgba(200,57,26,0.15)', borderColor: RED, borderWidth: 1.5, borderRadius: 2, yAxisID: 'y' },
+      { label: 'MoM Growth %', data: momGrowth, type: 'line', borderColor: GOLD, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointBackgroundColor: GOLD, tension: 0.3, yAxisID: 'y2' }
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'top', labels: { padding: 16 } } },
+    scales: {
+      x: { grid: { color: BORDER } },
+      y: { grid: { color: BORDER }, ticks: { callback: v => '$' + v + 'K' }, position: 'left' },
+      y2: { grid: { display: false }, ticks: { callback: v => v + '%' }, position: 'right' }
+    }
+  }
+});
+
+// Category bar
+new Chart(document.getElementById('categoryChart'), {
+  type: 'bar',
+  data: {
+    labels: ['Technology','Furniture','Office Supplies','Phones','Chairs','Storage','Tables','Binders','Machines','Copiers'],
+    datasets: [
+      { label: 'Revenue ($K)', data: [836,742,719,330,328,224,207,203,190,149], backgroundColor: [RED,RED,RED,GOLD,GOLD,TEAL,TEAL,BLUE,BLUE,BLUE], borderRadius: 2 }
+    ]
+  },
+  options: {
+    indexAxis: 'y', responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: BORDER }, ticks: { callback: v => '$' + v + 'K' } },
+      y: { grid: { display: false } }
+    }
+  }
+});
+
+// Discount impact
+new Chart(document.getElementById('discountChart'), {
+  type: 'bar',
+  data: {
+    labels: ['0% No Discount','1–10%','11–20%','21–30%','30%+ Heavy'],
+    datasets: [
+      { label: 'Margin %', data: [22.4, 17.8, 12.1, 3.4, -12.6], backgroundColor: [TEAL, TEAL, GOLD, GOLD, RED], borderRadius: 4 }
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: BORDER }, ticks: { callback: v => v + '%' } }
+    }
+  }
+});
+
+// RFM Donut
+new Chart(document.getElementById('rfmChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Champions','Loyal','Potential','Big Spenders','At Risk','Lost','Need Attention'],
+    datasets: [{ data: [18,14,12,8,22,12,14], backgroundColor: [RED,GOLD,TEAL,BLUE,'#ef4444','#94a3b8','#d4a853'], borderWidth: 0, hoverOffset: 6 }]
+  },
+  options: {
+    responsive: true, cutout: '60%',
+    plugins: { legend: { position: 'right', labels: { padding: 12, font: { size: 10 } } } }
+  }
+});
+</script>
+</body>
+</html>
