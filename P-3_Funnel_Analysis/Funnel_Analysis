@@ -1,0 +1,201 @@
+-- ============================================================
+-- PROJECT 3: Funnel Conversion & Drop-off Analysis
+-- ============================================================
+
+USE FunnelAnalysis;
+GO
+
+-- ============================================================
+-- ANALYSIS 1: Overall Funnel Conversion Rates
+-- ============================================================
+
+SELECT
+    SUM(CASE WHEN event_type = 'signed_up'             THEN 1 ELSE 0 END)  AS step1_signups,
+    SUM(CASE WHEN event_type = 'completed_onboarding'  THEN 1 ELSE 0 END)  AS step2_onboarded,
+    SUM(CASE WHEN event_type = 'first_purchase'        THEN 1 ELSE 0 END)  AS step3_first_purchase,
+    SUM(CASE WHEN event_type = 'second_purchase'       THEN 1 ELSE 0 END)  AS step4_second_purchase,
+    -- Conversion rates
+    ROUND(SUM(CASE WHEN event_type='completed_onboarding' THEN 1.0 ELSE 0 END) * 100
+          / NULLIF(SUM(CASE WHEN event_type='signed_up' THEN 1 ELSE 0 END),0), 2) AS signup_to_onboard_pct,
+    ROUND(SUM(CASE WHEN event_type='first_purchase' THEN 1.0 ELSE 0 END) * 100
+          / NULLIF(SUM(CASE WHEN event_type='completed_onboarding' THEN 1 ELSE 0 END),0), 2) AS onboard_to_purchase_pct,
+    ROUND(SUM(CASE WHEN event_type='second_purchase' THEN 1.0 ELSE 0 END) * 100
+          / NULLIF(SUM(CASE WHEN event_type='first_purchase' THEN 1 ELSE 0 END),0), 2) AS first_to_second_purchase_pct,
+    -- Overall signup to repeat buyer
+    ROUND(SUM(CASE WHEN event_type='second_purchase' THEN 1.0 ELSE 0 END) * 100
+          / NULLIF(SUM(CASE WHEN event_type='signed_up' THEN 1 ELSE 0 END),0), 2) AS overall_conversion_pct
+FROM events;
+GO
+
+-- ============================================================
+-- ANALYSIS 2: Funnel by Acquisition Channel
+-- Which channel converts best?
+-- ============================================================
+
+WITH channel_funnel AS (
+    SELECT
+        u.channel,
+        COUNT(DISTINCT u.user_id)                                                           AS signups,
+        COUNT(DISTINCT CASE WHEN e.event_type='completed_onboarding'  THEN e.user_id END)  AS onboarded,
+        COUNT(DISTINCT CASE WHEN e.event_type='first_purchase'        THEN e.user_id END)  AS purchased,
+        COUNT(DISTINCT CASE WHEN e.event_type='second_purchase'       THEN e.user_id END)  AS repeat_buyers
+    FROM users u
+    LEFT JOIN events e ON u.user_id = e.user_id
+    GROUP BY u.channel
+)
+SELECT
+    channel,
+    signups,
+    onboarded,
+    purchased,
+    repeat_buyers,
+    ROUND(onboarded  * 100.0 / NULLIF(signups,0), 2)    AS onboard_rate_pct,
+    ROUND(purchased  * 100.0 / NULLIF(onboarded,0), 2)  AS purchase_rate_pct,
+    ROUND(repeat_buyers * 100.0 / NULLIF(purchased,0), 2) AS repeat_rate_pct,
+    ROUND(purchased  * 100.0 / NULLIF(signups,0), 2)    AS overall_conv_pct
+FROM channel_funnel
+ORDER BY overall_conv_pct DESC;
+GO
+
+-- ============================================================
+-- ANALYSIS 3: Funnel by Device Type
+-- Do mobile users convert less?
+-- ============================================================
+
+WITH device_funnel AS (
+    SELECT
+        u.device,
+        COUNT(DISTINCT u.user_id)                                                           AS signups,
+        COUNT(DISTINCT CASE WHEN e.event_type='completed_onboarding'  THEN e.user_id END)  AS onboarded,
+        COUNT(DISTINCT CASE WHEN e.event_type='first_purchase'        THEN e.user_id END)  AS purchased,
+        COUNT(DISTINCT CASE WHEN e.event_type='second_purchase'       THEN e.user_id END)  AS repeat_buyers
+    FROM users u
+    LEFT JOIN events e ON u.user_id = e.user_id
+    GROUP BY u.device
+)
+SELECT
+    device,
+    signups,
+    onboarded,
+    purchased,
+    ROUND(onboarded  * 100.0 / NULLIF(signups,0), 2)   AS onboard_rate_pct,
+    ROUND(purchased  * 100.0 / NULLIF(onboarded,0), 2) AS purchase_rate_pct,
+    ROUND(repeat_buyers * 100.0 / NULLIF(purchased,0), 2) AS repeat_rate_pct
+FROM device_funnel
+ORDER BY purchase_rate_pct DESC;
+GO
+
+-- ============================================================
+-- ANALYSIS 4: Time-to-Convert Analysis
+-- How many days from signup to first purchase?
+-- ============================================================
+
+WITH time_to_convert AS (
+    SELECT
+        u.user_id,
+        u.channel,
+        u.device,
+        MIN(CASE WHEN e.event_type='signed_up'           THEN e.event_date END) AS signup_date,
+        MIN(CASE WHEN e.event_type='completed_onboarding' THEN e.event_date END) AS onboard_date,
+        MIN(CASE WHEN e.event_type='first_purchase'      THEN e.event_date END) AS purchase_date
+    FROM users u
+    JOIN events e ON u.user_id = e.user_id
+    GROUP BY u.user_id, u.channel, u.device
+)
+SELECT
+    channel,
+    device,
+    COUNT(*)                                                        AS converters,
+    ROUND(AVG(CAST(DATEDIFF(DAY, signup_date, onboard_date) AS FLOAT)), 1)  AS avg_days_to_onboard,
+    ROUND(AVG(CAST(DATEDIFF(DAY, signup_date, purchase_date) AS FLOAT)), 1) AS avg_days_to_purchase,
+    MIN(DATEDIFF(DAY, signup_date, purchase_date))                  AS fastest_days,
+    MAX(DATEDIFF(DAY, signup_date, purchase_date))                  AS slowest_days
+FROM time_to_convert
+WHERE purchase_date IS NOT NULL
+GROUP BY channel, device
+ORDER BY avg_days_to_purchase ASC;
+GO
+
+-- ============================================================
+-- ANALYSIS 5: Cohort Retention Matrix
+-- Signup week cohort → % who bought in 30 / 60 / 90 days
+-- ============================================================
+
+WITH user_cohorts AS (
+    SELECT
+        u.user_id,
+        u.signup_date,
+        DATEPART(WEEK, u.signup_date)                                AS signup_week,
+        YEAR(u.signup_date)                                          AS signup_year,
+        MIN(CASE WHEN e.event_type='first_purchase' THEN e.event_date END) AS first_purchase_date,
+        MIN(CASE WHEN e.event_type='second_purchase' THEN e.event_date END) AS second_purchase_date
+    FROM users u
+    LEFT JOIN events e ON u.user_id = e.user_id
+    GROUP BY u.user_id, u.signup_date, DATEPART(WEEK, u.signup_date), YEAR(u.signup_date)
+)
+SELECT
+    signup_year,
+    signup_week,
+    COUNT(*)                                                                AS cohort_size,
+    SUM(CASE WHEN first_purchase_date IS NOT NULL THEN 1 ELSE 0 END)       AS ever_purchased,
+    SUM(CASE WHEN DATEDIFF(DAY, signup_date, first_purchase_date) <= 30
+             THEN 1 ELSE 0 END)                                             AS purchased_in_30d,
+    SUM(CASE WHEN DATEDIFF(DAY, signup_date, first_purchase_date) <= 60
+             THEN 1 ELSE 0 END)                                             AS purchased_in_60d,
+    SUM(CASE WHEN DATEDIFF(DAY, signup_date, first_purchase_date) <= 90
+             THEN 1 ELSE 0 END)                                             AS purchased_in_90d,
+    ROUND(SUM(CASE WHEN DATEDIFF(DAY, signup_date, first_purchase_date) <= 30
+              THEN 1.0 ELSE 0 END) * 100 / COUNT(*), 2)                    AS retention_30d_pct,
+    ROUND(SUM(CASE WHEN DATEDIFF(DAY, signup_date, first_purchase_date) <= 60
+              THEN 1.0 ELSE 0 END) * 100 / COUNT(*), 2)                    AS retention_60d_pct,
+    ROUND(SUM(CASE WHEN DATEDIFF(DAY, signup_date, first_purchase_date) <= 90
+              THEN 1.0 ELSE 0 END) * 100 / COUNT(*), 2)                    AS retention_90d_pct
+FROM user_cohorts
+GROUP BY signup_year, signup_week
+ORDER BY signup_year, signup_week;
+GO
+
+-- ============================================================
+-- ANALYSIS 6: Drop-off Users — Who Did NOT Convert?
+-- Who got stuck at each stage? (for targeting)
+-- ============================================================
+
+WITH user_stages AS (
+    SELECT
+        u.user_id,
+        u.channel,
+        u.device,
+        u.city,
+        MAX(CASE WHEN e.event_type='signed_up'             THEN 1 ELSE 0 END) AS did_signup,
+        MAX(CASE WHEN e.event_type='completed_onboarding'  THEN 1 ELSE 0 END) AS did_onboard,
+        MAX(CASE WHEN e.event_type='first_purchase'        THEN 1 ELSE 0 END) AS did_purchase,
+        MAX(CASE WHEN e.event_type='second_purchase'       THEN 1 ELSE 0 END) AS did_repeat
+    FROM users u
+    LEFT JOIN events e ON u.user_id = e.user_id
+    GROUP BY u.user_id, u.channel, u.device, u.city
+)
+SELECT
+    CASE
+        WHEN did_signup=1 AND did_onboard=0                          THEN 'Dropped at Onboarding'
+        WHEN did_onboard=1 AND did_purchase=0                        THEN 'Dropped after Onboarding'
+        WHEN did_purchase=1 AND did_repeat=0                         THEN 'One-time Buyers'
+        WHEN did_repeat=1                                             THEN 'Repeat Buyers'
+        ELSE                                                               'Unknown'
+    END                                                             AS drop_off_stage,
+    channel,
+    device,
+    COUNT(*)                                                        AS user_count,
+    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2)             AS pct_of_all_users
+FROM user_stages
+GROUP BY
+    CASE
+        WHEN did_signup=1 AND did_onboard=0                          THEN 'Dropped at Onboarding'
+        WHEN did_onboard=1 AND did_purchase=0                        THEN 'Dropped after Onboarding'
+        WHEN did_purchase=1 AND did_repeat=0                         THEN 'One-time Buyers'
+        WHEN did_repeat=1                                             THEN 'Repeat Buyers'
+        ELSE                                                               'Unknown'
+    END,
+    channel,
+    device
+ORDER BY user_count DESC;
+GO
